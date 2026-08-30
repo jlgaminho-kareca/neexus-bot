@@ -1,152 +1,107 @@
-import os
-import json
 import discord
 from discord.ext import commands
-from discord import app_commands
+import json
+import os
 
-# Configuração do bot
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True
+intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-ARQUIVO_DADOS = "dados_gangue.json"
+# Arquivo para salvar os dados
+DATA_FILE = "dados_gangue.json"
 
-# IDs dos Canais e Cargos (ALTERE AQUI COM OS IDs DO SEU SERVIDOR)
-CANAL_COMPROVANTES_ID = 000000000000000000  # Canal onde a galera manda print
-CANAL_PAINEL_STAFF_ID = 000000000000000000  # Canal onde a staff aprova/reprova
-CARGO_MEMBRO_ID = 000000000000000000       # Cargo de membro da gangue
-
-# Função para carregar os dados salvos
 def carregar_dados():
-    if not os.path.exists(ARQUIVO_DADOS):
-        return {"pagamentos": {}, "saldo_total": 0}
-    try:
-        with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {"pagamentos": {}, "saldo_total": 0}
+    if not os.path.exists(DATA_FILE):
+        return {"canal_comprovantes": None, "canal_lista": None, "membros": {}}
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-# Função para salvar os dados
 def salvar_dados(dados):
-    with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(dados, f, indent=4, ensure_ascii=False)
 
 @bot.event
 async def on_ready():
+    print(f"Bot conectado como {bot.user}")
     try:
         synced = await bot.tree.sync()
-        print(f"Bot conectado como {bot.user} e {len(synced)} comandos sincronizados!")
+        print(f"Comandos sincronizados: {len(synced)}")
     except Exception as e:
-        print(f"Erro ao sincronizar comandos: {e}")
+        print(e)
 
-# Monitor de mensagens no canal de comprovantes
+# Comando para definir o canal onde os comprovantes serão enviados
+@bot.tree.command(name="set-comprovantes", description="Define o canal de envio de comprovantes")
+@commands.has_permissions(administrator=True)
+async def set_comprovantes(interaction: discord.Interaction, canal: discord.TextChannel):
+    dados = carregar_dados()
+    dados["canal_comprovantes"] = canal.id
+    salvar_dados(dados)
+    await interaction.response.send_message(f"Canal de comprovantes definido para {canal.mention}!", ephemeral=True)
+
+# Comando para definir o canal onde a lista de pagamento vai aparecer
+@bot.tree.command(name="set-lista", description="Define o canal onde a lista de pagamentos será exibida")
+@commands.has_permissions(administrator=True)
+async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel):
+    dados = carregar_dados()
+    dados["canal_lista"] = canal.id
+    salvar_dados(dados)
+    await interaction.response.send_message(f"Canal da lista definido para {canal.mention}!", ephemeral=True)
+
+# Monitora as mensagens enviadas no canal de comprovantes
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
-    if message.channel.id == CANAL_COMPROVANTES_ID:
-        # Verifica se mandou imagem ou link de comprovante
-        if message.attachments or "http" in message.content:
-            canal_staff = bot.get_channel(CANAL_PAINEL_STAFF_ID)
-            if canal_staff:
-                embed = discord.Embed(
-                    title="💳 Novo Comprovante Enviado",
-                    description=f"**Membro:** {message.author.mention}\n**Nick:** {message.author.display_name}",
-                    color=discord.Color.gold()
-                )
-                if message.attachments:
-                    embed.set_image(url=message.attachments[0].url)
-                
-                view = PainelStaffView(message.author.id, message.author.display_name)
-                await canal_staff.send(embed=embed, view=view)
-                await message.add_reaction("⏳")
+    dados = carregar_dados()
+    canal_comp = dados.get("canal_comprovantes")
+
+    # Verifica se a mensagem foi enviada no canal configurado de comprovantes e se tem imagem/anexo
+    if canal_comp and message.channel.id == canal_comp:
+        if message.attachments:
+            user_id = str(message.author.id)
+            user_name = message.author.display_name
+
+            # Inicializa o membro se não existir nos dados
+            if "membros" not in dados:
+                dados["membros"] = {}
+            if user_id not in dados["membros"]:
+                dados["membros"][user_id] = {"nome": user_name, "pago": False}
+
+            # Marca como pago ao enviar o comprovante (ou você pode ajustar para aprovação manual)
+            dados["membros"][user_id]["pago"] = True
+            salvar_dados(dados)
+
+            await message.add_reaction("✅")
+            
+            # Atualiza ou avisa no canal da lista se estiver configurado
+            canal_lista_id = dados.get("canal_lista")
+            if canal_lista_id:
+                canal_lista = bot.get_channel(canal_lista_id)
+                if canal_lista:
+                    # Aqui você pode mandar uma mensagem avisando ou atualizar a lista
+                    pass
 
     await bot.process_commands(message)
 
-# Botões de Aprovação da Staff
-class PainelStaffView(discord.ui.View):
-    def __init__(self, membro_id, membro_nome):
-        super().__init__(timeout=None)
-        self.membro_id = membro_id
-        self.membro_nome = membro_nome
-
-    @discord.ui.button(label="Aprovar (50k)", style=discord.ButtonStyle.green, custom_id="aprovar_pagamento")
-    async def aprovar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Valor padrão do pagamento da semana
-        valor = 50000 
-        
-        dados = carregar_dados()
-        membro_str = str(self.membro_id)
-        
-        dados["saldo_total"] += valor
-        dados["pagamentos"][membro_str] = {
-            "nome": self.membro_nome,
-            "pago": True,
-            "valor": valor
-        }
-        salvar_dados(dados)
-
-        for child in self.children:
-            child.disabled = True
-        
-        await interaction.response.edit_message(content=f"✅ Comprovante de **{self.membro_nome}** aprovado por {interaction.user.mention}!", view=self)
-
-    @discord.ui.button(label="Recusar", style=discord.ButtonStyle.red, custom_id="recusar_pagamento")
-    async def recusar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(content=f"❌ Comprovante de **{self.membro_nome}** recusado por {interaction.user.mention}.", view=self)
-
-# Comando: /saldo-total
-@bot.tree.command(name="saldo-total", description="Mostra o saldo total do caixa da gangue.")
-async def saldo_total(interaction: discord.Interaction):
+# Comando para ver o saldo ou status da galera
+@bot.tree.command(name="lista-pagamentos", description="Mostra o status de pagamentos da gangue")
+async def lista_pagamentos(interaction: discord.Interaction):
     dados = carregar_dados()
-    saldo = dados.get("saldo_total", 0)
+    membros = dados.get("membros", {})
     
-    embed = discord.Embed(
-        title="💰 Caixa da Gangue",
-        description=f"O saldo total atual no cofre é de: **R$ {saldo:,.2f}**".replace(",", "X").replace(".", ",").replace("X", "."),
-        color=discord.Color.green()
-    )
-    await interaction.response.send_message(embed=embed)
-
-# Comando: /lista-nao-pagou
-@bot.tree.command(name="lista-nao-pagou", description="Lista os membros que ainda não enviaram o pagamento.")
-async def lista_nao_pagou(interaction: discord.Interaction):
-    guild = interaction.guild
-    cargo = guild.get_role(CARGO_MEMBRO_ID)
-    
-    if not cargo:
-        await interaction.response.send_message("❌ Cargo de membro não configurado corretamente no código.", ephemeral=True)
+    if not membros:
+        await interaction.response.send_message("Nenhum registro de pagamento encontrado.", ephemeral=True)
         return
 
-    dados = carregar_dados()
-    pagamentos = dados.get("pagamentos", {})
+    texto = "**Status de Pagamentos da Gangue:**\n\n"
+    for uid, info in membros.items():
+        status = "Pago ✅" if info["pago"] else "Pendente ❌"
+        texto += f"- {info['nome']}: {status}\n"
 
-    inadimplentes = []
-    for membro in cargo.members:
-        membro_str = str(membro.id)
-        if membro_str not in pagamentos or not pagamentos[membro_str].get("pago", False):
-            inadimplentes.append(membro.mention)
+    await interaction.response.send_message(texto)
 
-    if not inadimplentes:
-        descricao = "🎉 Todos os membros pagaram a taxa!"
-    else:
-        descricao = "\n".join(inadimplentes)
-
-    embed = discord.Embed(
-        title="⚠️ Lista de Inadimplentes",
-        description=descricao,
-        color=discord.Color.red()
-    )
-    await interaction.response.send_message(embed=embed)
-
-# Pega o token de forma segura do ambiente configurado no Render
 TOKEN = os.getenv("DISCORD_TOKEN")
-if TOKEN:
-    bot.run(TOKEN)
-else:
-    print("ERRO: Token do Discord não encontrado nas variáveis de ambiente!")
+bot.run(TOKEN)

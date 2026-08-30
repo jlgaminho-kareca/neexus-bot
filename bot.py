@@ -2,14 +2,31 @@ import discord
 from discord.ext import commands
 import json
 import os
+from flask import Flask
+from threading import Thread
 
+# Configuração do servidor web básico para o Render não dar timeout de porta
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot da Gangue está online!"
+
+def run_flask():
+    port = int(os.getenv("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
+
+# Configuração do Bot do Discord
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Arquivo para salvar os dados
 DATA_FILE = "dados_gangue.json"
 
 def carregar_dados():
@@ -31,7 +48,6 @@ async def on_ready():
     except Exception as e:
         print(e)
 
-# Comando para definir o canal onde os comprovantes serão enviados
 @bot.tree.command(name="set-comprovantes", description="Define o canal de envio de comprovantes")
 @commands.has_permissions(administrator=True)
 async def set_comprovantes(interaction: discord.Interaction, canal: discord.TextChannel):
@@ -40,7 +56,6 @@ async def set_comprovantes(interaction: discord.Interaction, canal: discord.Text
     salvar_dados(dados)
     await interaction.response.send_message(f"Canal de comprovantes definido para {canal.mention}!", ephemeral=True)
 
-# Comando para definir o canal onde a lista de pagamento vai aparecer
 @bot.tree.command(name="set-lista", description="Define o canal onde a lista de pagamentos será exibida")
 @commands.has_permissions(administrator=True)
 async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel):
@@ -49,7 +64,6 @@ async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel
     salvar_dados(dados)
     await interaction.response.send_message(f"Canal da lista definido para {canal.mention}!", ephemeral=True)
 
-# Monitora as mensagens enviadas no canal de comprovantes
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -58,35 +72,23 @@ async def on_message(message):
     dados = carregar_dados()
     canal_comp = dados.get("canal_comprovantes")
 
-    # Verifica se a mensagem foi enviada no canal configurado de comprovantes e se tem imagem/anexo
     if canal_comp and message.channel.id == canal_comp:
         if message.attachments:
             user_id = str(message.author.id)
             user_name = message.author.display_name
 
-            # Inicializa o membro se não existir nos dados
             if "membros" not in dados:
                 dados["membros"] = {}
             if user_id not in dados["membros"]:
                 dados["membros"][user_id] = {"nome": user_name, "pago": False}
 
-            # Marca como pago ao enviar o comprovante (ou você pode ajustar para aprovação manual)
             dados["membros"][user_id]["pago"] = True
             salvar_dados(dados)
 
             await message.add_reaction("✅")
-            
-            # Atualiza ou avisa no canal da lista se estiver configurado
-            canal_lista_id = dados.get("canal_lista")
-            if canal_lista_id:
-                canal_lista = bot.get_channel(canal_lista_id)
-                if canal_lista:
-                    # Aqui você pode mandar uma mensagem avisando ou atualizar a lista
-                    pass
 
     await bot.process_commands(message)
 
-# Comando para ver o saldo ou status da galera
 @bot.tree.command(name="lista-pagamentos", description="Mostra o status de pagamentos da gangue")
 async def lista_pagamentos(interaction: discord.Interaction):
     dados = carregar_dados()
@@ -102,6 +104,9 @@ async def lista_pagamentos(interaction: discord.Interaction):
         texto += f"- {info['nome']}: {status}\n"
 
     await interaction.response.send_message(texto)
+
+# Inicia o servidor web em segundo plano para o Render
+keep_alive()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)

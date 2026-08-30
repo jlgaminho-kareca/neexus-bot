@@ -5,7 +5,7 @@ import os
 from flask import Flask
 from threading import Thread
 
-# Configuração do servidor web básico para o Render não dar timeout de porta
+# Configuração do Flask otimizada para rodar em background
 app = Flask('')
 
 @app.route('/')
@@ -16,8 +16,10 @@ def run_flask():
     port = int(os.getenv("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
+# Inicia o servidor web em uma thread separada para não bloquear o bot
 def keep_alive():
     t = Thread(target=run_flask)
+    t.daemon = True
     t.start()
 
 # Configuração do Bot do Discord
@@ -105,7 +107,7 @@ async def lista_pagamentos(interaction: discord.Interaction):
 
     await interaction.response.send_message(texto)
 
-# Inicia o servidor web em segundo plano para o Render
+# Inicia o Flask em background antes de ligar o bot
 keep_alive()
 
 TOKEN = os.getenv("DISCORD_TOKEN")

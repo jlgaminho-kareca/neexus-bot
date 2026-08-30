@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import discord
 from discord.ext import commands
 from flask import Flask
@@ -23,7 +24,7 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Memória global do bot (não depende de arquivos que apagam no Render)
+# Memória global do bot
 CONFIG_CANAIS = {
     "canal_comprovantes": None,
     "canal_lista": None
@@ -64,18 +65,29 @@ async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel
 async def lista_pagamentos(interaction: discord.Interaction):
     await interaction.response.defer()
     
+    # Pega a data atual no formato DDMMMAAAA (ex: 30082026)
+    hoje = datetime.now().strftime("%d/%m/%Y")
+    
     embed = discord.Embed(
-        title="📊 Status de Pagamentos da Gangue",
-        description="Controle financeiro atualizado.",
+        title=f"📊 Status de Pagamentos da Gangue ({hoje})",
+        description="Controle financeiro diário.",
         color=discord.Color.blue()
     )
     
-    if not PAGAMENTOS:
-        embed.add_field(name="Registros", value="Nenhum pagamento registrado ainda.", inline=False)
+    # Filtra ou limpa se houver dados de dias anteriores
+    pagamentos_hoje = {}
+    for user_id, info in PAGAMENTOS.items():
+        if isinstance(info, dict) and info.get("data") == hoje:
+            pagamentos_hoje[user_id] = info
+
+    if not pagamentos_hoje:
+        embed.add_field(name="Registros", value="Nenhum pagamento registrado hoje.", inline=False)
     else:
         texto = ""
-        for user_id, info in PAGAMENTOS.items():
-            texto += f"<@{user_id}>: **{info}**\n"
+        for user_id, info in pagamentos_hoje.items():
+            nome_usuario = info.get("nome", "Membro")
+            valor = info.get("valor", "Pago")
+            texto += f"<@{user_id}> ({nome_usuario}): **{valor}**\n"
         embed.add_field(name="Membros", value=texto, inline=False)
         
     await interaction.followup.send(embed=embed)
@@ -91,9 +103,14 @@ async def on_message(message):
         if message.attachments:
             user_id = str(message.author.id)
             texto_enviado = message.content if message.content else "Pago"
+            hoje = datetime.now().strftime("%d/%m/%Y")
             
-            # Salva na memória instantaneamente
-            PAGAMENTOS[user_id] = texto_enviado
+            # Salva o pagamento vinculado à data de hoje
+            PAGAMENTOS[user_id] = {
+                "nome": message.author.display_name,
+                "valor": texto_enviado,
+                "data": hoje
+            }
 
             try:
                 await message.add_reaction("✅")

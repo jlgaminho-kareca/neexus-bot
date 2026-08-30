@@ -88,8 +88,13 @@ async def lista_pagamentos(interaction: discord.Interaction):
         embed.add_field(name="Registros", value="Nenhum pagamento registrado ainda.", inline=False)
     else:
         texto = ""
-        for user_id, status in pagamentos.items():
-            texto += f"<@_{user_id}>: **{status}**\n"
+        for user_id, info in pagamentos.items():
+            # info pode ser uma string (antigo) ou um dicionário com o valor
+            if isinstance(info, dict):
+                valor = info.get("valor", "Pago")
+                texto += f"<@{user_id}>: **{valor}**\n"
+            else:
+                texto += f"<@{user_id}>: **{info}**\n"
         embed.add_field(name="Membros", value=texto, inline=False)
         
     await interaction.followup.send(embed=embed)
@@ -102,8 +107,22 @@ async def on_message(message):
     dados = carregar_dados()
     canal_comprovantes_id = dados.get("canal_comprovantes")
 
+    # Se a mensagem foi no canal de comprovantes e tem uma imagem
     if canal_comprovantes_id and message.channel.id == canal_comprovantes_id:
         if message.attachments:
+            user_id = str(message.author.id)
+            texto_enviado = message.content if message.content else "Pago"
+            
+            # Salva o pagamento associado ao ID do usuário e o texto/valor enviado
+            if "pagamentos" not in dados:
+                dados["pagamentos"] = {}
+                
+            dados["pagamentos"][user_id] = {
+                "nome": message.author.display_name,
+                "valor": texto_enviado
+            }
+            salvar_dados(dados)
+
             try:
                 await message.add_reaction("✅")
             except Exception:

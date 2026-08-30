@@ -12,7 +12,9 @@ def home():
     return "Bot da gangue está online e funcionando!"
 
 def run():
-    app.run(host='0.0.0.0', port=8080)
+    # Pega a porta que o Render exige (geralmente 10000) ou usa 8080 se rodar no PC
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
 
 def manter_online():
     t = Thread(target=run)
@@ -78,7 +80,7 @@ async def atualizar_painel_lista(bot_instance, guild):
             await msg.edit(embed=embed)
             return
         except Exception:
-            CONFIG_CANAIS["mensagem_lista_id"] = None # Reseta se a mensagem sumiu
+            CONFIG_CANAIS["mensagem_lista_id"] = None
             
     try:
         nova_msg = await canal.send(embed=embed)
@@ -172,7 +174,6 @@ if __name__ == "__main__":
     manter_online()
     TOKEN = os.getenv("DISCORD_TOKEN")
     if TOKEN:
-        # Usamos reconnect=True para forçar o bot a tentar religar sozinho se cair
         bot.run(TOKEN, reconnect=True)
     else:
         print("Erro: A variável de ambiente DISCORD_TOKEN não foi configurada no Render!")

@@ -1,11 +1,9 @@
 import os
-import json
 import discord
 from discord.ext import commands
 from flask import Flask
 from threading import Thread
 
-# Configuração do Flask para manter o bot online 24/7 no Render
 app = Flask('')
 
 @app.route('/')
@@ -19,34 +17,32 @@ def manter_online():
     t = Thread(target=run)
     t.start()
 
-# Configuração do Bot do Discord
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-ARQUIVO_DADOS = "dados_gangue.json"
-
-def carregar_dados():
-    if not os.path.exists(ARQUIVO_DADOS):
-        return {"canal_comprovantes": None, "canal_lista": None, "pagamentos": {}}
-    try:
-        with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {"canal_comprovantes": None, "canal_lista": None, "pagamentos": {}}
-
-def salvar_dados(dados):
-    with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=4, ensure_ascii=False)
+# Memória global do bot (não depende de arquivos que apagam no Render)
+CONFIG_CANAIS = {
+    "canal_comprovantes": None,
+    "canal_lista": None
+}
+PAGAMENTOS = {}
 
 @bot.event
 async def on_ready():
     print(f"Bot conectado como {bot.user}!")
     try:
-        synced = await bot.tree.sync()
-        print(f"Sincronizados {len(synced)} comandos de barra.")
+        GUILD_ID = os.getenv("DISCORD_GUILD_ID")
+        if GUILD_ID:
+            guild = discord.Object(id=int(GUILD_ID))
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            print(f"Sincronizados {len(synced)} comandos na guilda.")
+        else:
+            synced = await bot.tree.sync()
+            print(f"Sincronizados {len(synced)} comandos globais.")
     except Exception as e:
         print(f"Erro ao sincronizar comandos: {e}")
 
@@ -54,47 +50,32 @@ async def on_ready():
 @commands.has_permissions(administrator=True)
 async def set_comprovantes(interaction: discord.Interaction, canal: discord.TextChannel):
     await interaction.response.defer(ephemeral=True)
-    
-    dados = carregar_dados()
-    dados["canal_comprovantes"] = canal.id
-    salvar_dados(dados)
-    
+    CONFIG_CANAIS["canal_comprovantes"] = canal.id
     await interaction.followup.send(f"Canal de comprovantes definido para {canal.mention}!", ephemeral=True)
 
 @bot.tree.command(name="set-lista", description="Define o canal onde a lista de pagamentos será exibida")
 @commands.has_permissions(administrator=True)
 async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel):
     await interaction.response.defer(ephemeral=True)
-    
-    dados = carregar_dados()
-    dados["canal_lista"] = canal.id
-    salvar_dados(dados)
-    
+    CONFIG_CANAIS["canal_lista"] = canal.id
     await interaction.followup.send(f"Canal da lista definido para {canal.mention}!", ephemeral=True)
 
 @bot.tree.command(name="lista-pagamentos", description="Mostra o status de pagamentos da gangue")
 async def lista_pagamentos(interaction: discord.Interaction):
     await interaction.response.defer()
     
-    dados = carregar_dados()
     embed = discord.Embed(
         title="📊 Status de Pagamentos da Gangue",
         description="Controle financeiro atualizado.",
         color=discord.Color.blue()
     )
     
-    pagamentos = dados.get("pagamentos", {})
-    if not pagamentos:
+    if not PAGAMENTOS:
         embed.add_field(name="Registros", value="Nenhum pagamento registrado ainda.", inline=False)
     else:
         texto = ""
-        for user_id, info in pagamentos.items():
-            # info pode ser uma string (antigo) ou um dicionário com o valor
-            if isinstance(info, dict):
-                valor = info.get("valor", "Pago")
-                texto += f"<@{user_id}>: **{valor}**\n"
-            else:
-                texto += f"<@{user_id}>: **{info}**\n"
+        for user_id, info in PAGAMENTOS.items():
+            texto += f"<@{user_id}>: **{info}**\n"
         embed.add_field(name="Membros", value=texto, inline=False)
         
     await interaction.followup.send(embed=embed)
@@ -104,24 +85,15 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    dados = carregar_dados()
-    canal_comprovantes_id = dados.get("canal_comprovantes")
+    canal_comprovantes_id = CONFIG_CANAIS.get("canal_comprovantes")
 
-    # Se a mensagem foi no canal de comprovantes e tem uma imagem
     if canal_comprovantes_id and message.channel.id == canal_comprovantes_id:
         if message.attachments:
             user_id = str(message.author.id)
             texto_enviado = message.content if message.content else "Pago"
             
-            # Salva o pagamento associado ao ID do usuário e o texto/valor enviado
-            if "pagamentos" not in dados:
-                dados["pagamentos"] = {}
-                
-            dados["pagamentos"][user_id] = {
-                "nome": message.author.display_name,
-                "valor": texto_enviado
-            }
-            salvar_dados(dados)
+            # Salva na memória instantaneamente
+            PAGAMENTOS[user_id] = texto_enviado
 
             try:
                 await message.add_reaction("✅")
@@ -130,7 +102,6 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# Inicia o servidor Flask e o Bot
 if __name__ == "__main__":
     manter_online()
     TOKEN = os.getenv("DISCORD_TOKEN")

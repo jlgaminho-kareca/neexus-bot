@@ -61,15 +61,13 @@ async def atualizar_painel_lista(bot_instance, guild):
     msg_id = CONFIG_CANAIS.get("mensagem_lista_id")
     
     if not canal_lista_id:
-        print("Aviso: canal_lista não está definido.")
         return
         
     canal = guild.get_channel(canal_lista_id)
     if not canal:
         try:
             canal = await bot_instance.fetch_channel(canal_lista_id)
-        except Exception as e:
-            print(f"Erro ao buscar canal da lista: {e}")
+        except Exception:
             return
 
     embed = gerar_embed_pagamentos()
@@ -80,18 +78,17 @@ async def atualizar_painel_lista(bot_instance, guild):
             await msg.edit(embed=embed)
             return
         except Exception:
-            pass # Se falhou ao editar, cria uma nova
+            CONFIG_CANAIS["mensagem_lista_id"] = None # Reseta se a mensagem sumiu
             
     try:
         nova_msg = await canal.send(embed=embed)
         CONFIG_CANAIS["mensagem_lista_id"] = nova_msg.id
-        print("Painel criado com sucesso!")
-    except Exception as e:
-        print(f"Erro crítico ao enviar mensagem no canal da lista: {e}")
+    except Exception:
+        pass
 
 @bot.event
 async def on_ready():
-    print(f"Bot conectado como {bot.user}!")
+    print(f"Bot conectado e pronto como {bot.user}!")
     try:
         GUILD_ID = os.getenv("DISCORD_GUILD_ID")
         if GUILD_ID:
@@ -105,6 +102,14 @@ async def on_ready():
     except Exception as e:
         print(f"Erro ao sincronizar comandos: {e}")
 
+@bot.event
+async def on_disconnect():
+    print("Aviso: O bot foi desconectado do Discord. Tentando reconectar...")
+
+@bot.event
+async def on_resumed():
+    print("Sucesso: Conexão com o Discord restabelecida!")
+
 @bot.tree.command(name="set-comprovantes", description="Define o canal de envio de comprovantes")
 @commands.has_permissions(administrator=True)
 async def set_comprovantes(interaction: discord.Interaction, canal: discord.TextChannel):
@@ -117,7 +122,7 @@ async def set_comprovantes(interaction: discord.Interaction, canal: discord.Text
 async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel):
     await interaction.response.defer(ephemeral=True)
     CONFIG_CANAIS["canal_lista"] = canal.id
-    CONFIG_CANAIS["mensagem_lista_id"] = None # Reseta para forçar a criação de um novo
+    CONFIG_CANAIS["mensagem_lista_id"] = None
     
     try:
         embed = gerar_embed_pagamentos()
@@ -125,13 +130,14 @@ async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel
         CONFIG_CANAIS["mensagem_lista_id"] = nova_msg.id
         await interaction.followup.send(f"Painel criado com sucesso em {canal.mention}!", ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"Erro ao criar o painel no canal {canal.mention}. Verifique se eu tenho permissão de 'Enviar Mensagens' e 'Ver Canal' nele. Erro: {e}", ephemeral=True)
+        await interaction.followup.send(f"Erro ao criar o painel: {e}", ephemeral=True)
 
-@bot.tree.command(name="forcar-painel", description="Força a criação ou atualização do painel")
+@bot.tree.command(name="forcar-painel", description="Força a atualização do painel de pagamentos")
 async def forcar_painel(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    await atualizar_painel_lista(bot, interaction.guild)
-    await interaction.followup.send("Painel forçado com sucesso!", ephemeral=True)
+    if interaction.guild:
+        await atualizar_painel_lista(bot, interaction.guild)
+    await interaction.followup.send("Painel atualizado!", ephemeral=True)
 
 @bot.event
 async def on_message(message):
@@ -154,8 +160,8 @@ async def on_message(message):
 
             try:
                 await message.add_reaction("✅")
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Erro ao adicionar reação ✅: {e}")
 
             if message.guild:
                 await atualizar_painel_lista(bot, message.guild)
@@ -166,6 +172,7 @@ if __name__ == "__main__":
     manter_online()
     TOKEN = os.getenv("DISCORD_TOKEN")
     if TOKEN:
-        bot.run(TOKEN)
+        # Usamos reconnect=True para forçar o bot a tentar religar sozinho se cair
+        bot.run(TOKEN, reconnect=True)
     else:
         print("Erro: A variável de ambiente DISCORD_TOKEN não foi configurada no Render!")

@@ -24,7 +24,6 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Memória global do bot
 CONFIG_CANAIS = {
     "canal_comprovantes": None,
     "canal_lista": None,
@@ -40,7 +39,6 @@ def gerar_embed_pagamentos():
         color=discord.Color.blue()
     )
     
-    # Filtra pagamentos do dia atual
     pagamentos_hoje = {}
     for user_id, info in PAGAMENTOS.items():
         if isinstance(info, dict) and info.get("data") == hoje:
@@ -63,13 +61,15 @@ async def atualizar_painel_lista(bot_instance, guild):
     msg_id = CONFIG_CANAIS.get("mensagem_lista_id")
     
     if not canal_lista_id:
+        print("Aviso: canal_lista não está definido.")
         return
         
     canal = guild.get_channel(canal_lista_id)
     if not canal:
         try:
             canal = await bot_instance.fetch_channel(canal_lista_id)
-        except Exception:
+        except Exception as e:
+            print(f"Erro ao buscar canal da lista: {e}")
             return
 
     embed = gerar_embed_pagamentos()
@@ -80,11 +80,14 @@ async def atualizar_painel_lista(bot_instance, guild):
             await msg.edit(embed=embed)
             return
         except Exception:
-            pass # Se a mensagem foi apagada, cria uma nova abaixo
+            pass # Se falhou ao editar, cria uma nova
             
-    # Cria uma nova mensagem fixa se não existir
-    nova_msg = await canal.send(embed=embed)
-    CONFIG_CANAIS["mensagem_lista_id"] = nova_msg.id
+    try:
+        nova_msg = await canal.send(embed=embed)
+        CONFIG_CANAIS["mensagem_lista_id"] = nova_msg.id
+        print("Painel criado com sucesso!")
+    except Exception as e:
+        print(f"Erro crítico ao enviar mensagem no canal da lista: {e}")
 
 @bot.event
 async def on_ready():
@@ -114,19 +117,21 @@ async def set_comprovantes(interaction: discord.Interaction, canal: discord.Text
 async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel):
     await interaction.response.defer(ephemeral=True)
     CONFIG_CANAIS["canal_lista"] = canal.id
+    CONFIG_CANAIS["mensagem_lista_id"] = None # Reseta para forçar a criação de um novo
     
-    # Envia o painel inicial no canal escolhido
-    embed = gerar_embed_pagamentos()
-    nova_msg = await canal.send(embed=embed)
-    CONFIG_CANAIS["mensagem_lista_id"] = nova_msg.id
-    
-    await interaction.followup.send(f"Painel da lista configurado com sucesso em {canal.mention}!", ephemeral=True)
+    try:
+        embed = gerar_embed_pagamentos()
+        nova_msg = await canal.send(embed=embed)
+        CONFIG_CANAIS["mensagem_lista_id"] = nova_msg.id
+        await interaction.followup.send(f"Painel criado com sucesso em {canal.mention}!", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"Erro ao criar o painel no canal {canal.mention}. Verifique se eu tenho permissão de 'Enviar Mensagens' e 'Ver Canal' nele. Erro: {e}", ephemeral=True)
 
-@bot.tree.command(name="lista-pagamentos", description="Atualiza ou mostra o status atual")
-async def lista_pagamentos(interaction: discord.Interaction):
+@bot.tree.command(name="forcar-painel", description="Força a criação ou atualização do painel")
+async def forcar_painel(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     await atualizar_painel_lista(bot, interaction.guild)
-    await interaction.followup.send("Painel atualizado com sucesso!", ephemeral=True)
+    await interaction.followup.send("Painel forçado com sucesso!", ephemeral=True)
 
 @bot.event
 async def on_message(message):
@@ -141,7 +146,6 @@ async def on_message(message):
             texto_enviado = message.content if message.content else "Pago"
             hoje = datetime.now().strftime("%d/%m/%Y")
             
-            # Salva o pagamento do dia
             PAGAMENTOS[user_id] = {
                 "nome": message.author.display_name,
                 "valor": texto_enviado,
@@ -153,7 +157,6 @@ async def on_message(message):
             except Exception:
                 pass
 
-            # Atualiza automaticamente o painel no canal da lista em tempo real
             if message.guild:
                 await atualizar_painel_lista(bot, message.guild)
 

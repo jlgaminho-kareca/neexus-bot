@@ -1,6 +1,6 @@
 import os
 import threading
-from datetime import time
+from datetime import datetime, time
 from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands, tasks
@@ -35,14 +35,44 @@ HORARIO_BRASILIA = ZoneInfo("America/Sao_Paulo")
 HORA_ATUALIZACAO = time(hour=0, minute=0, tzinfo=HORARIO_BRASILIA)
 
 
+def criar_embed_lista():
+    # Pega a data atual no fuso horário de Brasília
+    data_atual = datetime.now(HORARIO_BRASILIA).strftime("%d/%m/%Y")
+    
+    embed = discord.Embed(
+        title=f"📊 Status de Pagamentos da Gangue ({data_atual})",
+        description="Controle financeiro diário em tempo real.",
+        color=discord.Color.blue()
+    )
+    
+    # Exemplo com os campos da lista que você mostrou na imagem
+    embed.add_field(
+        name="Membros",
+        value=(
+            "• **@Veinho Gente Fina** (Veinho Gente Fina): **Valor: 1000**\n"
+            "  Nome: zoe rogers\n"
+            "  Data: 31/08/26\n"
+            "  *(só para teste do bot)*\n\n"
+            "• **@Antonio Martins** (Antonio Martins): **Valor: 2000**\n"
+            "  Nome: António Martins\n"
+            "  Data: 30 e 31/08/26\n"
+            "  Ontem e hoje"
+        ),
+        inline=False
+    )
+    
+    return embed
+
+
 @tasks.loop(time=HORA_ATUALIZACAO)
 async def enviar_lista_diaria():
     global canal_lista_id
     if canal_lista_id is not None:
         canal = bot.get_channel(canal_lista_id)
         if canal:
-            await canal.send("📊 **Atualização Diária:** Nova lista do dia iniciada! Aqui estão os registros atualizados.")
-            print("Nova lista diária enviada com sucesso!")
+            embed = criar_embed_lista()
+            await canal.send(embed=embed)
+            print("Lista diária automática enviada com sucesso!")
         else:
             print("Canal da lista não encontrado.")
     else:
@@ -96,17 +126,18 @@ async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel
     )
 
 
-# Novo comando para forçar o envio da lista imediatamente
-@bot.tree.command(name="forcar-lista", description="Força o envio imediato da lista nova do dia")
+# Comando para forçar o envio da lista imediatamente no formato correto
+@bot.tree.command(name="forcar-lista", description="Força o envio imediato da lista nova do dia em formato embed")
 async def forcar_lista(interaction: discord.Interaction):
     global canal_lista_id
     
-    # Se o canal não foi definido por comando, usa o próprio canal onde o comando foi digitado
+    # Define o canal alvo (o canal salvo pelo /set-lista ou o canal atual se nenhum foi definido)
     canal_alvo = bot.get_channel(canal_lista_id) if canal_lista_id else interaction.channel
     
     if canal_alvo:
-        await canal_alvo.send("📊 **Atualização Forçada:** Nova lista do dia gerada e enviada!")
-        await interaction.response.send_message("✅ Lista enviada com sucesso!", ephemeral=True)
+        embed = criar_embed_lista()
+        await canal_alvo.send(embed=embed)
+        await interaction.response.send_message("✅ Lista atualizada enviada com sucesso!", ephemeral=True)
     else:
         await interaction.response.send_message("❌ Erro ao encontrar o canal para enviar a lista.", ephemeral=True)
 

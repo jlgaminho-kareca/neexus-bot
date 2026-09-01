@@ -36,7 +36,6 @@ HORA_ATUALIZACAO = time(hour=0, minute=0, tzinfo=HORARIO_BRASILIA)
 
 
 def criar_embed_lista():
-    # Pega a data atual no fuso horário de Brasília
     data_atual = datetime.now(HORARIO_BRASILIA).strftime("%d/%m/%Y")
     
     embed = discord.Embed(
@@ -45,7 +44,6 @@ def criar_embed_lista():
         color=discord.Color.blue()
     )
     
-    # Exemplo com os campos da lista que você mostrou na imagem
     embed.add_field(
         name="Membros",
         value=(
@@ -93,12 +91,10 @@ async def on_ready():
     except Exception as e:
         print(f"Erro ao sincronizar comandos: {e}")
 
-    # Inicia a tarefa diária
     if not enviar_lista_diaria.is_running():
         enviar_lista_diaria.start()
 
 
-# Proteção vital contra loops e Rate Limit (Erro 429)
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -106,7 +102,6 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-# Comando para definir o canal de comprovantes
 @bot.tree.command(name="set-comprovantes", description="Define o canal de comprovantes da gangue")
 async def set_comprovantes(interaction: discord.Interaction, canal: discord.TextChannel):
     await interaction.response.send_message(
@@ -115,7 +110,6 @@ async def set_comprovantes(interaction: discord.Interaction, canal: discord.Text
     )
 
 
-# Comando para definir o canal onde a lista nova será enviada
 @bot.tree.command(name="set-lista", description="Define o canal onde a nova lista diária será enviada")
 async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel):
     global canal_lista_id
@@ -126,23 +120,23 @@ async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel
     )
 
 
-# Comando para forçar o envio da lista imediatamente no formato correto
 @bot.tree.command(name="forcar-lista", description="Força o envio imediato da lista nova do dia em formato embed")
 async def forcar_lista(interaction: discord.Interaction):
     global canal_lista_id
     
-    # Define o canal alvo (o canal salvo pelo /set-lista ou o canal atual se nenhum foi definido)
+    # 1. Responde a interação imediatamente para evitar o erro 10062
+    await interaction.response.send_message("✅ Gerando e enviando a lista...", ephemeral=True)
+    
+    # 2. Descobre qual canal usar
     canal_alvo = bot.get_channel(canal_lista_id) if canal_lista_id else interaction.channel
     
     if canal_alvo:
         embed = criar_embed_lista()
         await canal_alvo.send(embed=embed)
-        await interaction.response.send_message("✅ Lista atualizada enviada com sucesso!", ephemeral=True)
     else:
-        await interaction.response.send_message("❌ Erro ao encontrar o canal para enviar a lista.", ephemeral=True)
+        await interaction.followup.send("❌ Erro ao encontrar o canal para enviar a lista.", ephemeral=True)
 
 
-# Inicialização simultânea (Flask + Bot)
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True

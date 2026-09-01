@@ -30,7 +30,7 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 # Variável para armazenar o ID do canal da lista definido pelo comando /set-lista
 canal_lista_id = None
 
-# Horário da atualização (00:00 no Horário de Brasília)
+# Horário da atualização automática (00:00 no Horário de Brasília)
 HORARIO_BRASILIA = ZoneInfo("America/Sao_Paulo")
 HORA_ATUALIZACAO = time(hour=0, minute=0, tzinfo=HORARIO_BRASILIA)
 
@@ -41,7 +41,6 @@ async def enviar_lista_diaria():
     if canal_lista_id is not None:
         canal = bot.get_channel(canal_lista_id)
         if canal:
-            # Mensagem da nova lista do dia
             await canal.send("📊 **Atualização Diária:** Nova lista do dia iniciada! Aqui estão os registros atualizados.")
             print("Nova lista diária enviada com sucesso!")
         else:
@@ -95,6 +94,21 @@ async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel
         f"✅ Canal da lista configurado com sucesso para {canal.mention}! A nova lista será enviada nele todos os dias.", 
         ephemeral=True
     )
+
+
+# Novo comando para forçar o envio da lista imediatamente
+@bot.tree.command(name="forcar-lista", description="Força o envio imediato da lista nova do dia")
+async def forcar_lista(interaction: discord.Interaction):
+    global canal_lista_id
+    
+    # Se o canal não foi definido por comando, usa o próprio canal onde o comando foi digitado
+    canal_alvo = bot.get_channel(canal_lista_id) if canal_lista_id else interaction.channel
+    
+    if canal_alvo:
+        await canal_alvo.send("📊 **Atualização Forçada:** Nova lista do dia gerada e enviada!")
+        await interaction.response.send_message("✅ Lista enviada com sucesso!", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Erro ao encontrar o canal para enviar a lista.", ephemeral=True)
 
 
 # Inicialização simultânea (Flask + Bot)

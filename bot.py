@@ -4,7 +4,7 @@ import discord
 from discord.ext import commands
 from flask import Flask
 
-# Configuração do Flask
+# Configuração do Flask para manter a porta aberta no Render
 app = Flask(__name__)
 
 
@@ -14,7 +14,6 @@ def home():
 
 
 def run_flask():
-    # Usa a porta dinâmica do Render ou a porta padrão 10000
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
@@ -32,7 +31,7 @@ async def on_ready():
     print(f"Bot conectado como {bot.user}")
     try:
         await bot.tree.sync()
-        print("Comandos de barra sincronizados!")
+        print("Comandos sincronizados com sucesso!")
     except Exception as e:
         print(f"Erro ao sincronizar comandos: {e}")
 
@@ -45,8 +44,8 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-# Exemplo do comando de comprovantes (adicione seus outros comandos logo abaixo)
-@bot.tree.command(name="set-comprovantes", description="Define o canal de comprovantes")
+# Comando para definir o canal de comprovantes
+@bot.tree.command(name="set-comprovantes", description="Define o canal de comprovantes da gangue")
 async def set_comprovantes(interaction: discord.Interaction, canal: discord.TextChannel):
     await interaction.response.send_message(
         f"✅ Canal de comprovantes configurado para {canal.mention}!", 
@@ -54,7 +53,16 @@ async def set_comprovantes(interaction: discord.Interaction, canal: discord.Text
     )
 
 
-# Execução simultânea (Flask em background + Bot do Discord)
+# Comando para definir ou atualizar a lista / painel
+@bot.tree.command(name="set-lista", description="Define o canal onde a lista de pagamentos/tesouro será exibida")
+async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel):
+    await interaction.response.send_message(
+        f"✅ Canal da lista configurado com sucesso para {canal.mention}!", 
+        ephemeral=True
+    )
+
+
+# Inicialização simultânea (Flask + Bot)
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True

@@ -27,25 +27,31 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="/", intents=intents)
 
+# Variável para armazenar o ID do canal da lista definido pelo comando /set-lista
+canal_lista_id = None
 
-# Defina aqui o horário fixo que a lista deve atualizar (Ex: 00:00 da manhã no Horário de Brasília)
+# Horário da atualização (00:00 no Horário de Brasília)
 HORARIO_BRASILIA = ZoneInfo("America/Sao_Paulo")
 HORA_ATUALIZACAO = time(hour=0, minute=0, tzinfo=HORARIO_BRASILIA)
 
 
 @tasks.loop(time=HORA_ATUALIZACAO)
-async def atualizar_lista_diaria():
-    # Código que roda sozinho todos os dias no horário marcado
-    print("Executando a atualização automática da lista...")
-    
-    # Exemplo: Se você quiser que o bot mande a lista em um canal específico, 
-    # podemos puxar o ID do canal salvo ou de um canal padrão.
-    # Por enquanto, ele vai apenas registrar no console que tentou atualizar.
-    # (Se você tiver a lógica antiga de envio/atualização, basta substituir aqui dentro!)
+async def enviar_lista_diaria():
+    global canal_lista_id
+    if canal_lista_id is not None:
+        canal = bot.get_channel(canal_lista_id)
+        if canal:
+            # Mensagem da nova lista do dia
+            await canal.send("📊 **Atualização Diária:** Nova lista do dia iniciada! Aqui estão os registros atualizados.")
+            print("Nova lista diária enviada com sucesso!")
+        else:
+            print("Canal da lista não encontrado.")
+    else:
+        print("Nenhum canal de lista foi configurado ainda. Use o comando /set-lista.")
 
 
-@atualizar_lista_diaria.before_loop
-async def before_atualizar_lista():
+@enviar_lista_diaria.before_loop
+async def before_enviar_lista():
     await bot.wait_until_ready()
 
 
@@ -58,9 +64,9 @@ async def on_ready():
     except Exception as e:
         print(f"Erro ao sincronizar comandos: {e}")
 
-    # Inicia a tarefa de atualização diária se ela já não estiver rodando
-    if not atualizar_lista_diaria.is_running():
-        atualizar_lista_diaria.start()
+    # Inicia a tarefa diária
+    if not enviar_lista_diaria.is_running():
+        enviar_lista_diaria.start()
 
 
 # Proteção vital contra loops e Rate Limit (Erro 429)
@@ -80,11 +86,13 @@ async def set_comprovantes(interaction: discord.Interaction, canal: discord.Text
     )
 
 
-# Comando para definir o canal da lista
-@bot.tree.command(name="set-lista", description="Define o canal onde a lista de pagamentos/tesouro será exibida")
+# Comando para definir o canal onde a lista nova será enviada
+@bot.tree.command(name="set-lista", description="Define o canal onde a nova lista diária será enviada")
 async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel):
+    global canal_lista_id
+    canal_lista_id = canal.id
     await interaction.response.send_message(
-        f"✅ Canal da lista configurado com sucesso para {canal.mention}!", 
+        f"✅ Canal da lista configurado com sucesso para {canal.mention}! A nova lista será enviada nele todos os dias.", 
         ephemeral=True
     )
 

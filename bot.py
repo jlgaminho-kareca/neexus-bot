@@ -27,9 +27,10 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="/", intents=intents)
 
-# Variáveis para armazenar IDs dos canais e os dados da lista atual
+# Variáveis para armazenar IDs dos canais, dados e a referência da mensagem da lista
 canal_lista_id = None
 canal_comprovantes_id = None
+ultima_mensagem_lista_id = None
 
 # Lista para armazenar os pagamentos recebidos no dia
 registros_pagamentos = []
@@ -62,15 +63,37 @@ def criar_embed_lista():
     return embed
 
 
+# Função auxiliar para enviar ou atualizar a lista existente no canal
+async def atualizar_ou_enviar_lista(canal):
+    global ultima_mensagem_lista_id, registros_pagamentos
+    embed = criar_embed_lista()
+    
+    # Tenta editar a última mensagem da lista se ela já existir no canal
+    if ultima_mensagem_lista_id:
+        try:
+            msg_antiga = await canal.fetch_message(ultima_mensagem_lista_id)
+            await msg_antiga.edit(embed=embed)
+            return
+        except discord.NotFound:
+            # Se a mensagem foi apagada manualmente, o código segue para enviar uma nova
+            pass
+        except Exception as e:
+            print(f"Erro ao editar mensagem da lista: {e}")
+            
+    # Se não houver mensagem anterior ou se ela foi apagada, envia uma nova e guarda o ID
+    nova_msg = await canal.send(embed=embed)
+    ultima_mensagem_lista_id = nova_msg.id
+
+
 @tasks.loop(time=HORA_ATUALIZACAO)
 async def enviar_lista_diaria():
-    global canal_lista_id, registros_pagamentos
+    global canal_lista_id, registros_pagamentos, ultima_mensagem_lista_id
     if canal_lista_id is not None:
         canal = bot.get_channel(canal_lista_id)
         if canal:
-            embed = criar_embed_lista()
-            await canal.send(embed=embed)
             registros_pagamentos.clear()
+            ultima_mensagem_lista_id = None  # Reseta para criar uma nova lista limpa no dia
+            await atualizar_ou_enviar_lista(canal)
             print("Nova lista diária enviada e registros zerados.")
         else:
             print("Canal da lista não encontrado.")
@@ -119,11 +142,11 @@ async def on_message(message):
         registros_pagamentos.append(novo_registro)
         await message.add_reaction("✅")
         
+        # Atualiza a mesma mensagem da lista existente no canal de destino
         if canal_lista_id:
             canal_lista = bot.get_channel(canal_lista_id)
             if canal_lista:
-                embed = criar_embed_lista()
-                await canal_lista.send("🔔 **Comprovante Novo Registrado! Lista Atualizada:**", embed=embed)
+                await atualizar_ou_enviar_lista(canal_lista)
 
     await bot.process_commands(message)
 
@@ -131,36 +154,27 @@ async def on_message(message):
 @bot.tree.command(name="set-comprovantes", description="Define o canal de comprovantes da gangue")
 async def set_comprovantes(interaction: discord.Interaction, canal: discord.TextChannel):
     global canal_comprovantes_id
+    await interaction.response.send_message(f"✅ Canal de comprovantes configurado para {canal.mention}!", ephemeral=True)
     canal_comprovantes_id = canal.id
-    await interaction.response.send_message(
-        f"✅ Canal de comprovantes configurado para {canal.mention}!", 
-        ephemeral=True
-    )
 
 
 @bot.tree.command(name="set-lista", description="Define o canal onde a nova lista diária será enviada")
 async def set_lista(interaction: discord.Interaction, canal: discord.TextChannel):
-    global canal_lista_id
+    global canal_lista_id, ultima_mensagem_lista_id
+    await interaction.response.send_message(f"✅ Canal da lista configurado com sucesso para {canal.mention}!", ephemeral=True)
     canal_lista_id = canal.id
-    await interaction.response.send_message(
-        f"✅ Canal da lista configurado com sucesso para {canal.mention}!", 
-        ephemeral=True
-    )
+    ultima_mensagem_lista_id = None  # Reseta o ID ao reconfigurar o canal
 
 
 @bot.tree.command(name="forcar-lista", description="Força o envio imediato da lista nova")
 async def forcar_lista(interaction: discord.Interaction):
     global canal_lista_id
     
-    # Tenta usar o canal salvo ou recorre ao canal atual onde o comando foi digitado
-    canal_alvo = bot.get_channel(canal_lista_id) if canal_lista_id else interaction.channel
+    await interaction.response.send_message("✅ Gerando e enviando a lista...", ephemeral=True)
     
+    canal_alvo = bot.get_channel(canal_lista_id) if canal_lista_id else interaction.channel
     if canal_alvo:
-        embed = criar_embed_lista()
-        await canal_alvo.send(embed=embed)
-        await interaction.response.send_message("✅ Lista forçada enviada com sucesso!", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ Erro: Não foi possível identificar o canal.", ephemeral=True)
+        await atualizar_ou_enviar_lista(canal_alvo)
 
 
 if __name__ == "__main__":
